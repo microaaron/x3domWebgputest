@@ -1,8 +1,8 @@
 /** 
  * X3DOM 1.8.4-dev
- * Build : 7581
- * Revision: e75c52240d6bfac99f81c17c2d8a904e935b7755
- * Date: Thu Apr 25 22:30:29 2024 +0800
+ * Build : 7584
+ * Revision: bfa8cf1961d1fc91e7ebeaaa376622843c22ced4
+ * Date: Thu May 2 23:44:39 2024 +0800
  */
 /**
  * X3DOM JavaScript Library
@@ -29,9 +29,9 @@ var x3dom = {
 
 x3dom.about = {
     version  : "1.8.4-dev",
-    build    : "7581",
-    revision : "e75c52240d6bfac99f81c17c2d8a904e935b7755",
-    date     : "Thu Apr 25 22:30:29 2024 +0800"
+    build    : "7584",
+    revision : "bfa8cf1961d1fc91e7ebeaaa376622843c22ced4",
+    date     : "Thu May 2 23:44:39 2024 +0800"
 };
 
 /**
@@ -13439,13 +13439,16 @@ x3dom.gfx_webgpu = ( function ()
         textures = shape.getTextures();
         for ( t = 0; t < textures.length; ++t )
         {
-            shape._webgpu.texture.push( new x3dom.Texture( ctx3d, shape._nameSpace.doc, this.cache, textures[ t ] ) );
+            //shape._webgpu.texture.push( new x3dom.Texture( ctx3d, shape._nameSpace.doc, this.cache, textures[ t ] ) );
         }
 
         // Set Shader
         // shape._webgl.shader = this.cache.getDynamicShader(gl, viewarea, shape);
         // shape._webgl.shader = this.cache.getShaderByProperties(gl, drawable.properties);
-        shape._webgpu.shader = this.cache.getShaderByProperties( this, shape, shape.getShaderProperties( viewarea ) ).new();
+        if ( !shape._webgpu.shader || shape._webgpu.shader.id != shape.getShaderProperties( viewarea ).id )
+        {
+            shape._webgpu.shader = this.cache.getShaderByProperties( this, shape, shape.getShaderProperties( viewarea ) ).new();
+        }
         //shape._webgpu.shader.initVertexBuffers();
         //shape._webgpu.shader.initIndexBuffer();
 
@@ -13456,6 +13459,51 @@ x3dom.gfx_webgpu = ( function ()
         sp.vertices.position = new sp.assets.Positions( shape._webgpu.positions[ 0 ] );
         sp.vertices.normal = new sp.assets.Normals( shape._webgpu.normals[ 0 ] );
         sp.indexBuffer = shape._webgpu.indexes[ 0 ];
+        if ( shape.getShaderProperties( viewarea ).TEXTURED )
+        {
+            sp.vertices.texcoord = new sp.assets.Texcoords( shape._webgpu.texcoords[ 0 ] );
+            if ( !window.webgpuTexture )
+            {
+                var tempTexture = this.device.createTexture( {
+                    size   : [ 1, 1, 1 ],
+                    format : "rgba8unorm",
+                    usage  : GPUTextureUsage.TEXTURE_BINDING |
+                    GPUTextureUsage.COPY_DST |
+                    GPUTextureUsage.RENDER_ATTACHMENT
+                } );
+                window.webgpuTexture = tempTexture;
+                //sp.uniformStorage.texture = tempTexture;
+
+                var img = new Image();
+                img.crossOrigin = "anonymous";
+                img.src = textures[ 0 ]._nameSpace.getURL( textures[ 0 ]._vf.url[ 0 ] );
+                img.decode().then( ()=>
+                {
+                    createImageBitmap( img ).then( ( imageBitmap )=>
+                    {
+                        const texture = this.device.createTexture( {
+                            size   : [ imageBitmap.width, imageBitmap.height, 1 ],
+                            format : "rgba8unorm",
+                            usage  : GPUTextureUsage.TEXTURE_BINDING |
+                    GPUTextureUsage.COPY_DST |
+                    GPUTextureUsage.RENDER_ATTACHMENT
+                        } );
+                        this.device.queue.copyExternalImageToTexture( {
+                            source : imageBitmap
+                        }, {
+                            texture : texture
+                        },
+                        [ imageBitmap.width, imageBitmap.height ]
+                        );
+                        tempTexture.destroy();
+                        window.webgpuTexture = texture;
+                        //sp.uniformStorage.texture = texture;
+                    } );
+                } );
+            }
+            sp.uniformStorage.texture = window.webgpuTexture;
+        }
+
         /*
         shape._webgpu.buffers = [];
         shape._webgpu.dynamicFields = [];
@@ -15202,14 +15250,27 @@ x3dom.gfx_webgpu = ( function ()
             sp.transparency     = 0.0;
             sp.alphaCutoff      = 0.1;
         }*/
-        sp.uniformStorage.diffuseColor      = mat._vf.diffuseColor.toGL();
-        sp.uniformStorage.specularColor     = mat._vf.specularColor.toGL();
-        sp.uniformStorage.emissiveColor     = mat._vf.emissiveColor.toGL();
-        sp.uniformStorage.shininess         = mat._vf.shininess;
-        sp.uniformStorage.ambientIntensity  = mat._vf.ambientIntensity;
-        sp.uniformStorage.transparency      = mat._vf.transparency;
-        //sp.uniformStorage.environmentFactor = 0.0;
-        sp.uniformStorage.alphaCutoff       = s_app._vf.alphaClipThreshold;
+        if ( mat )
+        {
+            sp.uniformStorage.diffuseColor      = mat._vf.diffuseColor.toGL();
+            sp.uniformStorage.specularColor     = mat._vf.specularColor.toGL();
+            sp.uniformStorage.emissiveColor     = mat._vf.emissiveColor.toGL();
+            sp.uniformStorage.shininess         = mat._vf.shininess;
+            sp.uniformStorage.ambientIntensity  = mat._vf.ambientIntensity;
+            sp.uniformStorage.transparency      = mat._vf.transparency;
+            //sp.uniformStorage.environmentFactor = 0.0;
+            sp.uniformStorage.alphaCutoff       = s_app._vf.alphaClipThreshold;
+        }
+        else
+        {
+            sp.uniformStorage.diffuseColor     = [ 1.0, 1.0, 1.0 ];
+            sp.uniformStorage.specularColor    = [ 0.0, 0.0, 0.0 ];
+            sp.uniformStorage.emissiveColor    = [ 0.0, 0.0, 0.0 ];
+            sp.uniformStorage.shininess        = 0.0;
+            sp.uniformStorage.ambientIntensity = 1.0;
+            sp.uniformStorage.transparency     = 0.0;
+            sp.uniformStorage.alphaCutoff      = 0.1;
+        }
         /*
         // Look for user-defined shaders
         if ( shader )
@@ -21029,7 +21090,7 @@ x3dom.Cache.prototype.getDynamicShader = function ( gl, viewarea, shape )
 x3dom.Cache.prototype.getShaderByProperties = function ( context, shape, properties, pickMode, shadows )
 {
     // Get shaderID
-    var shaderID = properties.id;
+    var id = properties.id;
 
     if ( pickMode !== undefined && pickMode !== null )
     {
@@ -21041,7 +21102,7 @@ x3dom.Cache.prototype.getShaderByProperties = function ( context, shape, propert
         shaderID += "S";
     }
 
-    if ( this.passResources[ shaderID ] === undefined )
+    if ( this.passResources[ id ] === undefined )
     {
         var program = null;
 
@@ -21068,14 +21129,15 @@ x3dom.Cache.prototype.getShaderByProperties = function ( context, shape, propert
         else
         {
             //program = new x3dom.shader.DynamicShader( context, properties );
-            this.passResources[ shaderID ] = x3dom.shader.DynamicShader( context, properties );
+            this.passResources[ id ] = x3dom.shader.DynamicShader( context, properties );
+            this.passResources[ id ].id = id;
         }
 
         //this.shaders[ shaderID ] = x3dom.Utils.wrapProgram( context, program, shaderID );
     }
 
     //return this.shaders[ shaderID ];
-    return this.passResources[ shaderID ];
+    return this.passResources[ id ];
 };
 
 /**
@@ -35739,14 +35801,14 @@ x3dom.WebGPU.BindingListArray = class BindingListArray extends Array
 
     static BindingParamsList = class BindingParamsList extends Array
     {
-        addBindingParams ( name, wgslType, visibility, resourceLayoutObject, size/*Optional*/ )
+        addBindingParams ( name, wgslType, visibility, resourceLayoutObject, addition/*Optional*/ )
         {
             this.push( {
                 name                 : name,
                 wgslType             : wgslType,
                 visibility           : visibility,
                 resourceLayoutObject : resourceLayoutObject,
-                size                 : size//Optional;
+                addition             : addition//Optional
             } );
             return this;
         }
@@ -35771,7 +35833,7 @@ x3dom.WebGPU.BindingListArray = class BindingListArray extends Array
             {
                 var entry = bindGroupLayoutDescriptor.newEntry( bindGroupLayoutDescriptor.entries.length, bindingParams.visibility, bindingParams.resourceLayoutObject );
                 bindGroupLayoutDescriptor.entries.push( entry );
-                bindingList.push( new class BindingData
+                const bindingData = new class BindingData
                 {
                     name = bindingParams.name;
 
@@ -35779,8 +35841,17 @@ x3dom.WebGPU.BindingListArray = class BindingListArray extends Array
 
                     entry = entry;
 
-                    size = bindingParams.size;
-                }() );
+                    resourceDescriptor = bindingParams.addition;
+                }();
+                if ( entry.buffer ){}
+                else if ( entry.sampler )
+                {
+                    bindingData.samplerDescriptor = bindingParams.addition;
+                }
+                else if ( entry.texture ){}
+                else if ( entry.storageTexture ){}
+                else if ( entry.externalTexture ){}
+                bindingList.push( bindingData );
             }
 
             bindingList.bindGroupLayoutDescriptor = bindGroupLayoutDescriptor;
@@ -35952,11 +36023,16 @@ x3dom.WebGPU.PassResource = class PassResource
         const device = this.device;
         let updated = true;
         let bindGroup;
-        const layout = bindingList.getBindGroupLayout();
+        const layout = bindingList.getBindGroupLayout( device );
         const entries = [];
         const label = undefined;
         const bindGroupDescriptor = new class extends x3dom.WebGPU.GPUBindGroupDescriptor
         {
+            update ()
+            {
+                updated = true;
+            }
+
             setUpdated ( value )
             {
                 updated = value ? true : false;
@@ -36007,7 +36083,7 @@ x3dom.WebGPU.PassResource = class PassResource
                 {
                     if ( bindingData.entry.buffer )
                     {
-                        let size = bindingData.size ? bindingData.size : x3dom.WGSL.sizeOf( bindingData.wgslType );
+                        let size = x3dom.WGSL.sizeOf( bindingData.wgslType );
                         let usage = GPUBufferUsage.COPY_DST;
                         switch ( bindingData.entry.buffer.type )
                         {
@@ -36031,18 +36107,22 @@ x3dom.WebGPU.PassResource = class PassResource
                     }
                     else if ( bindingData.entry.sampler )
                     {
-                        //incomplete
+                        if ( bindingData.samplerDescriptor )
+                        {
+                            resource = device.createSampler( bindingData.samplerDescriptor );
+                        }
                     }
                     else if ( bindingData.entry.texture )
                     {
-                        //incomplete
+                        //do nothing
                     }
                     else if ( bindingData.entry.storageTexture )
                     {
                         //incomplete
                     }
                 }
-                this.entries[ binding ] = x3dom.WebGPU.GPUBindGroupDescriptor.newEntry( binding, resource );
+                const entry = x3dom.WebGPU.GPUBindGroupDescriptor.newEntry( binding, resource );
+                this.entries[ binding ] = entry;
                 //set properties
                 if ( bindingData.entry.buffer )
                 {
@@ -36109,7 +36189,7 @@ x3dom.WebGPU.PassResource = class PassResource
                         Object.defineProperty( passResource.uniformStorage, bindingData.name, {
                             get : function ()
                             {
-                                return resource.buffer;
+                                return entry.resource.buffer;
                             },
                             set : function ( value )
                             {
@@ -36141,15 +36221,15 @@ x3dom.WebGPU.PassResource = class PassResource
                                 {
                                     return;//unknow type;
                                 }
-                                if ( view.byteLength != resource.buffer.size )
+                                if ( view.byteLength != entry.resource.buffer.size )
                                 {
-                                    resource.buffer.destroy();
-                                    resource.setBuffer( device.createBuffer( new x3dom.WebGPU.GPUBufferDescriptor( view.byteLength, resource.buffer.usage, false, resource.buffer.label ) ) );
+                                    entry.resource.buffer.destroy();
+                                    entry.resource.setBuffer( device.createBuffer( new x3dom.WebGPU.GPUBufferDescriptor( view.byteLength, entry.resource.buffer.usage, false, entry.resource.buffer.label ) ) );
                                     //resource.setOffset(0);
                                     //resource.setSize(view.byteLength);
                                     updated = true;
                                 }
-                                device.queue.writeBuffer( resource.buffer, 0, view.buffer, view.byteOffset, view.byteLength );
+                                device.queue.writeBuffer( entry.resource.buffer, 0, view.buffer, view.byteOffset, view.byteLength );
                             },
                             enumerable   : true,
                             configurable : true
@@ -36162,11 +36242,49 @@ x3dom.WebGPU.PassResource = class PassResource
                 }
                 else if ( bindingData.entry.sampler )
                 {
-                    //incomplete
+                    Object.defineProperty( passResource.uniformStorage, bindingData.name, {
+                        get : function ()
+                        {
+                            return entry.resource;
+                        },
+                        set : function ( value )
+                        {
+                            switch ( true )
+                            {
+                                case value instanceof GPUSampler:
+                                    entry.setResource( value );
+                                    break;
+                                default:
+                                    entry.setResource( device.createSampler( value ) );
+                                    break;
+                            }
+                        },
+                        enumerable   : true,
+                        configurable : true
+                    } );
                 }
                 else if ( bindingData.entry.texture )
                 {
-                    //incomplete
+                    Object.defineProperty( passResource.uniformStorage, bindingData.name, {
+                        get : function ()
+                        {
+                            return entry.resource;
+                        },
+                        set : function ( value )
+                        {
+                            switch ( true )
+                            {
+                                case value instanceof GPUTextureView:
+                                    entry.setResource( value );
+                                    break;
+                                case value instanceof GPUTexture:
+                                    entry.setResource( value.createView() );
+                                    break;
+                            }
+                        },
+                        enumerable   : true,
+                        configurable : true
+                    } );
                 }
                 else if ( bindingData.entry.storageTexture )
                 {
@@ -36245,59 +36363,15 @@ x3dom.WebGPU.RenderPassResource = class RenderPassResource extends x3dom.WebGPU.
         super( arg0, arg1 );
         if ( arg0 instanceof GPUDevice )
         {
-            /*this.bindingListArray = [];
-            this.bindGroupDescriptors = [];
-            this.uniformStorage = {};
-            this.bindGroups = [];*/
             this.vertices = {};
             this.vertexBuffers = [];
-            //this.assets = {};
-            //let renderPipeline;
-            //let renderPipelineDescriptor;
-            //let renderPipelineDescriptorUpdated;
-            /*Object.defineProperty( this, "device", {
-                get : function ()
-                {
-                    return arg;
-                },
-                enumerable   : true,
-                configurable : true
-            } );*/
-            //initRenderPipeline();
-            /*Object.defineProperty( this, `renderPipelineDescriptor`, {
-                get : function ()
-                {
-                    return renderPipelineDescriptor;
-                },
-                set : function ( descriptor )
-                {
-                    renderPipelineDescriptor = descriptor;
-                    renderPipelineDescriptorUpdated = true;
-                },
-                enumerable   : true,
-                configurable : true
-            } );
-            Object.defineProperty( this, `renderPipeline`, {
-                get : function ()
-                {
-                    if ( renderPipelineDescriptorUpdated )
-                    {
-                        renderPipeline = this.device.createRenderPipeline( renderPipelineDescriptor );
-                        renderPipelineDescriptorUpdated = false;
-                    }
-                    return renderPipeline;
-                },
-                enumerable   : true,
-                configurable : true
-            } );*/
         }
     }
 
     initRenderPipeline ( renderPipelineDescriptor = new x3dom.WebGPU.GPURenderPipelineDescriptor() )
     {
         let renderPipeline;
-        //let renderPipelineDescriptor;
-        let renderPipelineDescriptorUpdated = true;
+        let updated = true;
         Object.defineProperty( this, `renderPipelineDescriptor`, {
             get : function ()
             {
@@ -36306,7 +36380,7 @@ x3dom.WebGPU.RenderPassResource = class RenderPassResource extends x3dom.WebGPU.
             set : function ( descriptor )
             {
                 renderPipelineDescriptor = descriptor;
-                renderPipelineDescriptorUpdated = true;
+                updated = true;
             },
             enumerable   : true,
             configurable : true
@@ -36314,10 +36388,10 @@ x3dom.WebGPU.RenderPassResource = class RenderPassResource extends x3dom.WebGPU.
         Object.defineProperty( this, `renderPipeline`, {
             get : function ()
             {
-                if ( renderPipelineDescriptorUpdated )
+                if ( updated )
                 {
                     renderPipeline = this.device.createRenderPipeline( renderPipelineDescriptor );
-                    renderPipelineDescriptorUpdated = false;
+                    updated = false;
                 }
                 return renderPipeline;
             },
@@ -36398,7 +36472,10 @@ x3dom.WebGPU.RenderPassResource = class RenderPassResource extends x3dom.WebGPU.
     {
         for ( const vertexList of vertexListArray )
         {
-            this.initVertexBuffer( vertexListArray.indexOf( vertexList ), vertexList );
+            if ( vertexList )
+            {
+                this.initVertexBuffer( vertexListArray.indexOf( vertexList ), vertexList );
+            }
         }
     }
 
@@ -37111,6 +37188,139 @@ x3dom.WebGPU.GPUTextureFormat = class GPUTextureFormat
     }
 };
 /**
+ * @file GPUSamplerDescriptor.js
+ * @author microaaron(github.com/microaaron)
+ * @date 2024.05
+ */
+x3dom.WebGPU.GPUSamplerDescriptor = class GPUSamplerDescriptor extends x3dom.WebGPU.GPUObjectDescriptorBase
+{
+    constructor ( addressModeU, addressModeV, addressModeW, magFilter, minFilter, mipmapFilter, lodMinClamp, lodMaxClamp, compare, maxAnisotropy, label )
+    {
+        super( label );
+        this.addressModeU = addressModeU;//Optional; GPUAddressMode; undefined = "clamp-to-edge"
+        this.addressModeV = addressModeV;//Optional; GPUAddressMode; undefined = "clamp-to-edge"
+        this.addressModeW = addressModeW;//Optional; GPUAddressMode; undefined = "clamp-to-edge"
+        this.magFilter = magFilter;//Optional; GPUFilterMode; undefined = "nearest"
+        this.minFilter = minFilter;//Optional; GPUFilterMode; undefined = "nearest"
+        this.mipmapFilter = mipmapFilter;//Optional; GPUMipmapFilterMode; undefined = "nearest"
+        this.lodMinClamp = lodMinClamp;//Optional; float; undefined = 0
+        this.lodMaxClamp = lodMaxClamp;//Optional; float; undefined = 32
+        this.compare = compare;//Optional
+        this.maxAnisotropy = maxAnisotropy;//Optional; unsigned short; undefined = 1
+    }
+
+    setAddressModeU ( addressModeU ){this.addressModeU = addressModeU;}
+
+    setAddressModeV ( addressModeV ){this.addressModeV = addressModeV;}
+
+    setAddressModeW ( addressModeW ){this.addressModeW = addressModeW;}
+
+    setMagFilter ( magFilter ){this.magFilter = magFilter;}
+
+    setMinFilter ( minFilter ){this.minFilter = minFilter;}
+
+    setMipmapFilter ( mipmapFilter ){this.mipmapFilter = mipmapFilter;}
+
+    setLodMinClamp ( lodMinClamp ){this.lodMinClamp = lodMinClamp;}
+
+    setLodMaxClamp ( lodMaxClamp ){this.lodMaxClamp = lodMaxClamp;}
+
+    setCompare ( compare ){this.compare = compare;}
+
+    setMaxAnisotropy ( maxAnisotropy ){this.maxAnisotropy = maxAnisotropy;}
+
+    static getAvailableAddressModeUs (){return new x3dom.WebGPU.GPUAddressMode();}
+
+    static getAvailableAddressModeVs (){return new x3dom.WebGPU.GPUAddressMode();}
+
+    static getAvailableAddressModeWs (){return new x3dom.WebGPU.GPUAddressMode();}
+
+    static getAvailableMagFilters (){return new x3dom.WebGPU.GPUFilterMode();}
+
+    static getAvailableMinFilters (){return new x3dom.WebGPU.GPUFilterMode();}
+
+    static getAvailableMipmapFilters (){return new x3dom.WebGPU.GPUMipmapFilterMode();}
+
+    static getAvailableCompares (){return new x3dom.WebGPU.GPUCompareFunction();}
+
+    get [ Symbol.toStringTag ] ()
+    {
+        return "GPUSamplerDescriptor";
+    }
+};
+x3dom.WebGPU.GPUSamplerDescriptor.prototype.getAvailableAddressModeUs = x3dom.WebGPU.GPUSamplerDescriptor.getAvailableAddressModeUs;
+x3dom.WebGPU.GPUSamplerDescriptor.prototype.getAvailableAddressModeVs = x3dom.WebGPU.GPUSamplerDescriptor.getAvailableAddressModeVs;
+x3dom.WebGPU.GPUSamplerDescriptor.prototype.getAvailableAddressModeWs = x3dom.WebGPU.GPUSamplerDescriptor.getAvailableAddressModeWs;
+x3dom.WebGPU.GPUSamplerDescriptor.prototype.getAvailableMagFilters = x3dom.WebGPU.GPUSamplerDescriptor.getAvailableMagFilters;
+x3dom.WebGPU.GPUSamplerDescriptor.prototype.getAvailableMinFilters = x3dom.WebGPU.GPUSamplerDescriptor.getAvailableMinFilters;
+x3dom.WebGPU.GPUSamplerDescriptor.prototype.getAvailableMipmapFilters = x3dom.WebGPU.GPUSamplerDescriptor.getAvailableMipmapFilters;
+x3dom.WebGPU.GPUSamplerDescriptor.prototype.getAvailableCompares = x3dom.WebGPU.GPUSamplerDescriptor.getAvailableCompares;
+/**
+ * @file GPUAddressMode.js
+ * @author microaaron(github.com/microaaron)
+ * @date 2024.05
+ */
+x3dom.WebGPU.GPUAddressMode = class GPUAddressMode
+{
+    clamp_to_edge = "clamp-to-edge";
+
+    repeat = "repeat";
+
+    mirror_repeat = "mirror-repeat";
+
+    constructor ()
+    {
+        Object.freeze( this );
+    }
+
+    get [ Symbol.toStringTag ] ()
+    {
+        return "GPUAddressMode";
+    }
+};
+/**
+ * @file GPUFilterMode.js
+ * @author microaaron(github.com/microaaron)
+ * @date 2024.05
+ */
+x3dom.WebGPU.GPUFilterMode = class GPUFilterMode
+{
+    nearest = "nearest";
+
+    linear = "linear";
+
+    constructor ()
+    {
+        Object.freeze( this );
+    }
+
+    get [ Symbol.toStringTag ] ()
+    {
+        return "GPUFilterMode";
+    }
+};
+/**
+ * @file GPUMipmapFilterMode.js
+ * @author microaaron(github.com/microaaron)
+ * @date 2024.05
+ */
+x3dom.WebGPU.GPUMipmapFilterMode = class GPUMipmapFilterMode
+{
+    nearest = "nearest";
+
+    linear = "linear";
+
+    constructor ()
+    {
+        Object.freeze( this );
+    }
+
+    get [ Symbol.toStringTag ] ()
+    {
+        return "GPUMipmapFilterMode";
+    }
+};
+/**
  * @file GPUCompareFunction.js
  * @author microaaron(github.com/microaaron)
  * @date 2024.02
@@ -37199,10 +37409,6 @@ x3dom.WebGPU.GPUBindGroupLayoutEntry = class GPUBindGroupLayoutEntry
         else if ( resourceLayoutObject instanceof x3dom.WebGPU.GPUStorageTextureBindingLayout )
         {
             this.storageTexture = resourceLayoutObject;
-        }
-        else if ( resourceLayoutObject instanceof x3dom.WebGPU.GPUExternalTextureBindingLayout )
-        {
-            this.externalTexture = resourceLayoutObject;
         }
         else if ( resourceLayoutObject instanceof x3dom.WebGPU.GPUExternalTextureBindingLayout )
         {
@@ -37637,7 +37843,7 @@ x3dom.WebGPU.GPUBindGroupDescriptor = class GPUBindGroupDescriptor extends x3dom
     constructor ( layout, entries = [], label )
     {
         super( label );
-        this.layout = layout; //required GPUBindGroupLayout
+        this.layout = layout; //Required GPUBindGroupLayout
         this.entries = entries; //Required sequence<GPUBindGroupEntry>
     }
 
@@ -40160,38 +40366,6 @@ x3dom.shader.toneMapping = function ()
     return shaderPart;
 };
 
-/*
- * X3DOM JavaScript Library
- * http://www.x3dom.org
- *
- * (C)2009 Fraunhofer IGD, Darmstadt, Germany
- * Dual licensed under the MIT and GPL
- *
- * Based on code originally provided by
- * Philip Taylor: http://philip.html5.org
- */
-
-/**
- * Generate the final Shader program
- */
-/*x3dom.shader.DynamicShader = function ( ctx3d, properties )
-{
-    this.program = ctx3d.createProgram();
-
-    var vertexShader     = this.generateVertexShader( ctx3d, properties, x3dom.caps.WEBGL_VERSION );
-    var fragmentShader   = this.generateFragmentShader( ctx3d, properties, x3dom.caps.WEBGL_VERSION );
-
-    ctx3d.attachShader( this.program, vertexShader );
-    ctx3d.attachShader( this.program, fragmentShader );
-
-    // optional, but position should be at location 0 for performance reasons
-    ctx3d.bindAttribLocation( this.program, 0, `position` );
-
-    ctx3d.linkProgram( this.program );
-
-    return this.program;
-};*/
-
 x3dom.shader.DynamicShader = function ( context, properties )
 {
     var bindingListArray = new x3dom.WebGPU.BindingListArray();
@@ -40279,7 +40453,20 @@ x3dom.shader.DynamicShader = function ( context, properties )
     }
 
     //Textures
+    if ( properties.TEXTURED )
+    {
+        vertexOutputList.add( `fragTexcoord`, `vec2<f32>` );
+        bindingParamsList0.addBindingParams( `diffuseMap`, `sampler`, GPUShaderStage.FRAGMENT, new x3dom.WebGPU.GPUSamplerBindingLayout( `filtering` ), new x3dom.WebGPU.GPUSamplerDescriptor( "clamp-to-edge", "clamp-to-edge", "clamp-to-edge", "linear", "linear", "linear", 0, 32, undefined, 16 ) )
+            .addBindingParams( `texture`, `texture_2d<f32>`, GPUShaderStage.FRAGMENT, new x3dom.WebGPU.GPUTextureBindingLayout( `float`, `2d` ) );
 
+        if ( !properties.SPHEREMAPPING )
+        {
+            if ( !properties.IS_PARTICLE )
+            {
+                vertexListArray.addVertexList( vertexListArray.newVertexParamsList().addVertexParams( `texcoord`, `vec2<f32>`, `float32x2` ).createVertexList() );
+            }
+        }
+    }
     //Lights & Fog
     if ( properties.LIGHTS || properties.FOG || properties.CLIPPLANES || properties.POINTPROPERTIES )
     {
@@ -40564,14 +40751,14 @@ var mat_mv: mat4x4<f32> = modelViewMatrix;
             }
             else
             {
-                vs_mainFunctionBodyCode += "var vertNormal:vec3<f32> = normal;\n";
+                vs_mainFunctionBodyCode += `var vertNormal:vec3<f32> = normal;\n`;
                 if ( properties.REQUIREBBOXNOR )
                 {
                     //vs_mainFunctionBodyCode += "vertNormal = vertNormal / bgPrecisionNorMax;\n";
                 }
                 if ( properties.POPGEOMETRY )
                 {
-                    vs_mainFunctionBodyCode += "vertNormal = 2.0*vertNormal - 1.0;\n";
+                    vs_mainFunctionBodyCode += `vertNormal = 2.0*vertNormal - 1.0;\n`;
                 }
             }
         }
@@ -40587,6 +40774,19 @@ var mat_mv: mat4x4<f32> = modelViewMatrix;
         vs_mainFunctionBodyCode += `fragColor = fragColor / bgPrecisionColMax;\n`;
       }*/
     }
+    //TexCoords
+    if ( ( properties.TEXTURED ) && !properties.SPHEREMAPPING )
+    {
+        if ( properties.IS_PARTICLE || properties.POINTPROPERTIES )
+        {
+            vs_mainFunctionBodyCode += `var vertTexCoord:vec2<f32> = vec2<f32>(0.0,0.0);\n`;
+        }
+        else
+        {
+            vs_mainFunctionBodyCode += `var vertTexCoord:vec2<f32> = texcoord;\n`;
+        }
+    }
+
     /*******************************************************************************
 * End of special Geometry switch
 ********************************************************************************/
@@ -40596,6 +40796,19 @@ var mat_mv: mat4x4<f32> = modelViewMatrix;
         vs_mainFunctionBodyCode += `vertexOutput.fragNormal = (mat_n * vec4(vertNormal, 0.0)).xyz;\n`;
     }
     //Textures
+    if ( properties.TEXTURED )
+    {
+        if ( properties.SPHEREMAPPING )
+        {
+        }
+        else if ( properties.TEXTRAFO )
+        {
+        }
+        else
+        {
+            vs_mainFunctionBodyCode += "vertexOutput.fragTexcoord = vertTexCoord;\n";
+        }
+    }
     //Lights & Fog
     if ( properties.LIGHTS || properties.FOG || properties.CLIPPLANES || properties.POINTPROPERTIES )
     {
@@ -40642,7 +40855,18 @@ var _occlusion: f32 = 1.0;
         fs_mainFunctionBodyCode += "color.a = 1.0;\n";
     }
 
-    if ( properties.LIGHTS )
+    if ( properties.IS_PARTICLE || properties.POINTPROPERTIES )
+    {
+    }
+    else if ( properties.TEXTURED )
+    {
+        //fs_mainFunctionBodyCode += "var texcoord:vec2<f32> = fragTexcoord;\n";
+    }
+    if ( properties.UNLIT )
+    {
+
+    }
+    else if ( properties.LIGHTS )
     {
         fs_mainFunctionBodyCode +=
 `var ambient: vec3<f32> = vec3(0.0, 0.0, 0.0);
@@ -40717,6 +40941,46 @@ specular = max(specular, vec3(0.0, 0.0, 0.0));
 
         fs_mainFunctionBodyCode += "color = vec4<f32>(_emissiveColor + ((ambient + diffuse) * color.rgb + specular * _specularColor) * _occlusion,color.a);\n";
     }
+    else
+    {
+        if ( properties.TEXTURED && ( properties.DIFFUSEMAP || properties.DIFFPLACEMENTMAP || properties.TEXT ) )
+        {
+            if ( properties.PIXELTEX )
+            {
+            }
+            else
+            {
+                if ( properties.IS_PARTICLE || properties.POINTPROPERTIES )
+                {
+                }
+                else
+                {
+                    fs_mainFunctionBodyCode += "var texCoord:vec2<f32> = fragTexcoord;\n";
+                }
+            }
+            fs_mainFunctionBodyCode += `texColor = gammaDecodeVec4 (textureSample(texture, diffuseMap, vec2<f32>(texCoord.x,1-texCoord.y)));\n`;
+            //fs_mainFunctionBodyCode += "color.a = texColor.a;\n";
+            if ( properties.BLENDING || properties.IS_PARTICLE || properties.POINTPROPERTIES )
+            {
+            }
+            else
+            {
+                fs_mainFunctionBodyCode += "color = texColor;\n";
+            }
+        }
+    }
+
+    //Kill pixel
+    if ( properties.TEXT )
+    {
+    }
+    else if ( properties.ALPHAMASK )
+    {
+    }
+    else if ( +properties.ALPHATHRESHOLD > 0 )
+    {
+        fs_mainFunctionBodyCode += "if (color.a <= alphaCutoff) {discard;}\n";
+    }
 
     //Output the gamma encoded result.
     fs_mainFunctionBodyCode +=
@@ -40773,89 +41037,10 @@ fn ${fragmentShaderModuleEntryPoint}(
   ${fs_mainFunctionBodyCode}
 }`;
 
-    //layout: GPUPipelineLayout
-    {
-        const bindGroupLayouts = bindingListArray.getBindGroupLayouts( context.device );
-        var layout = context.device.createPipelineLayout( new x3dom.WebGPU.GPUPipelineLayoutDescriptor( bindGroupLayouts ) );
-    }
-    //vertex: GPUVertexState
-    {
-        const module = context.device.createShaderModule( new x3dom.WebGPU.GPUShaderModuleDescriptor( vertexShaderModuleCode ) );
-        const entryPoint = vertexShaderModuleEntryPoint;
-        const constants = undefined;
-        const buffers = vertexListArray.vertexBufferLayouts;
-        var vertex = new x3dom.WebGPU.GPUVertexState( module, entryPoint, constants, buffers );
-    }
-    //fragment: GPUFragmentState
-    {
-        const module = context.device.createShaderModule( new x3dom.WebGPU.GPUShaderModuleDescriptor( fragmentShaderModuleCode ) );
-        const entryPoint = fragmentShaderModuleEntryPoint;
-        const constants = undefined;
-        const targets = [ x3dom.WebGPU.GPUFragmentState.newTarget( navigator.gpu.getPreferredCanvasFormat()/*, blend, writeMask*/ ) ];
-        var fragment = new x3dom.WebGPU.GPUFragmentState( module, entryPoint, constants, targets );
-    }
-    //primitive: GPUPrimitiveState
-    {
-        const stripIndexFormat = undefined;
-        const frontFace = "ccw";
-        const cullMode = "back";
-        var primitive = new x3dom.WebGPU.GPUPrimitiveState( "triangle-list", stripIndexFormat, frontFace, cullMode/*, unclippedDepth*/ );
-    }
-    //depthStencil: GPUDepthStencilState
-    {
-        const format = "depth32float-stencil8";
-        const depthWriteEnabled = true;
-        const depthCompare = "less";
-        var depthStencil = new x3dom.WebGPU.GPUDepthStencilState( format, depthWriteEnabled, depthCompare/*, stencilFront, stencilBack, stencilReadMask, stencilWriteMask, depthBias, depthBiasSlopeScale, depthBiasClamp*/ );
-    }
-    //multisample: GPUMultisampleState
-    {
-        const count = 1;
-        var multisample = new x3dom.WebGPU.GPUMultisampleState( count/*, mask, alphaToCoverageEnabled*/ );
-    }
-    var renderPipelineDescriptor = new x3dom.WebGPU.GPURenderPipelineDescriptor( layout, vertex, fragment, primitive, depthStencil, multisample/*, label*/ );
-    //var renderPipeline = context.device.createRenderPipeline( renderPipelineDescriptor );
-
-    /*var shader = {};
-    //shader.buffers = {};
-    shader.uniformStorage = {};
-    shader.renderPipeline = renderPipeline;
-    //shader.bindGroupDescriptors = [];
-    shader.bindGroups = [];*/
-
-    var shader = new x3dom.WebGPU.RenderPassResource( context.device );
-    //shader.renderPipelineDescriptor = renderPipelineDescriptor;
-    shader.bindingListArray = bindingListArray;
-    shader.vertexListArray = vertexListArray;
-
-    //shader.initBindGroups( perInitBindingListArray );
-    /*for ( const bindingList of bindingListArray )
-    {
-        shader.initBindGroup( bindingListArray.indexOf( bindingList ), shader.initBindGroupDescriptor( bindingList ) );
-    }*/
-    /*
-    var resource = new x3dom.WebGPU.GPUBufferBinding( buffer, offset, size );
-    var resource = sampler;
-    var resource = textureView;
-    var resource = externalTexture;
-    */
-
-    //var bindGroups=[];
-    /*
-    for ( const bindingList of bindingListArray )
-    {
-        const bindGroupDescriptor = x3dom.WebGPU.createBindGroupDescriptor( context.device, shader, bindingList );
-        //shader.bindGroupDescriptors.push( bindGroupDescriptor );
-        //shader.bindGroups.push( context.device.createBindGroup( bindGroupDescriptor ) );
-        Object.defineProperty( shader.bindGroups, bindingListArray.indexOf( bindingList ), {
-            get : function ()
-            {
-                return bindGroupDescriptor.getBindGroup();
-            }
-        } );
-    }*/
-
-    shader.assets.Lights = class Lights extends DataView
+    var renderPassResource = new x3dom.WebGPU.RenderPassResource( context.device );
+    renderPassResource.bindingListArray = bindingListArray;
+    renderPassResource.vertexListArray = vertexListArray;
+    renderPassResource.assets.Lights = class Lights extends DataView
     {
         stride = 7 * 16;
 
@@ -40939,7 +41124,7 @@ fn ${fragmentShaderModuleEntryPoint}(
         };
     };
 
-    shader.assets.Positions = class Positions extends Float32Array
+    renderPassResource.assets.Positions = class Positions extends Float32Array
     {
         constructor ( arg )
         {
@@ -40974,7 +41159,7 @@ fn ${fragmentShaderModuleEntryPoint}(
             }
         };
     };
-    shader.assets.Normals = class Normals extends Float32Array
+    renderPassResource.assets.Normals = class Normals extends Float32Array
     {
         constructor ( arg )
         {
@@ -41009,50 +41194,48 @@ fn ${fragmentShaderModuleEntryPoint}(
             }
         };
     };
-
-    /*for ( var bindGroupDescriptor of shader.bindGroupDescriptors )
+    renderPassResource.assets.Texcoords = class Texcoords extends Float32Array
     {
-      if(bindGroupDescriptor.needToUpdateBindGroup){
-        shader.bindGroups[shader.bindGroupDescriptors.indexOf(bindGroupDescriptor)]=context.device.createBindGroup( bindGroupDescriptor );
-      }
-    }*/
+        constructor ( arg )
+        {
+            switch ( true )
+            {
+                case typeof arg === `number` || arg instanceof Number:
+                    super( arg * 2 );
+                    break;
+                case arg instanceof Array:
+                    super( arg );
+                    break;
+                default:
+                    super( arg );
+                    break;
+            }
+        }
 
-    /*
-var buffers={};
-var uniformStorage={};
-var bindGroups=[];
-*/
+        setNormal = function ( index, value )
+        {
+            switch ( true )
+            {
+                case value instanceof Array:
+                    this[ index * 2 ] = value[ 0 ];
+                    this[ index * 2 + 1 ] = value[ 1 ];
+                    break;
+                case typeof value === `number` || value instanceof Number:
+                    this[ index * 2 ] = arguments[ 1 ];
+                    this[ index * 2 + 1 ] = arguments[ 2 ];
+                    break;
+            }
+        };
+    };
 
-    /*var shader2 = shader.copy( {
-        vertexBuffers : [],
-        vertices      : {}
-    } );*/
+    renderPassResource.initBindGroups( [ , bindingListArray[ 1 ] ] );
 
-    /*var perInitBindingListArray = [ [] ];
-    perInitBindingListArray[ 0 ][ 5 ] = bindingListArray[ 0 ][ 5 ];//screenWidth
-    perInitBindingListArray[ 0 ][ 6 ] = bindingListArray[ 0 ][ 6 ];//cameraPosWS
-    //perInitBindingListArray[0][7]=bindingListArray[0][7];//alphaCutoff
-    perInitBindingListArray[ 0 ][ 14 ] = bindingListArray[ 0 ][ 14 ];//numberOfLights
-    perInitBindingListArray[ 0 ][ 17 ] = bindingListArray[ 0 ][ 17 ];//eyePosition
-    perInitBindingListArray[ 0 ][ 18 ] = bindingListArray[ 0 ][ 18 ];//isOrthoView
-    perInitBindingListArray[ 0 ][ 20 ] = bindingListArray[ 0 ][ 20 ];//lights
-    perInitBindingListArray[ 0 ].getBindGroupLayout = ()=>{};
-
-    shader.bindGroupDescriptors[ 0 ] = shader.initBindGroupDescriptor( perInitBindingListArray[ 0 ] );
-    var resourcesArray = [ shader.bindGroupDescriptors[ 0 ].getResources() ];*/
-
-    shader.initBindGroups( [ , bindingListArray[ 1 ] ] );
-
-    //Object.defineProperties( {}, Object.assign( Object.getOwnPropertyDescriptors( shader.uniformStorage ));
-    //var uniformStorage = Object.defineProperties( {}, Object.assign( Object.getOwnPropertyDescriptors( shader.uniformStorage ));
-
-    //var copy=shader.copy;
-    shader.new = ()=>
+    renderPassResource.new = ()=>
     {
-        var newShade = shader.copy( {
-            bindGroupDescriptors : [ , shader.bindGroupDescriptors[ 1 ] ],
-            uniformStorage       : Object.defineProperties( {}, Object.getOwnPropertyDescriptors( shader.uniformStorage ) ),
-            bindGroups           : Object.defineProperty( [], 1, Object.getOwnPropertyDescriptor( shader.bindGroups, 1 ) ),
+        var newRenderPassResource = renderPassResource.copy( {
+            bindGroupDescriptors : [ , renderPassResource.bindGroupDescriptors[ 1 ] ],
+            uniformStorage       : Object.defineProperties( {}, Object.getOwnPropertyDescriptors( renderPassResource.uniformStorage ) ),
+            bindGroups           : Object.defineProperty( [], 1, Object.getOwnPropertyDescriptor( renderPassResource.bindGroups, 1 ) ),
             vertexBuffers        : [],
             vertices             : {}
         } );
@@ -41096,118 +41279,13 @@ var bindGroups=[];
             const count = 1;
             var multisample = new x3dom.WebGPU.GPUMultisampleState( count/*, mask, alphaToCoverageEnabled*/ );
         }
-        newShade.initRenderPipeline( new x3dom.WebGPU.GPURenderPipelineDescriptor( layout, vertex, fragment, primitive, depthStencil, multisample/*, label*/ ) );
-        newShade.initBindGroups( [ bindingListArray[ 0 ] ] );
-        newShade.initVertexBuffers();
-        newShade.initIndexBuffer();
-        return newShade;
+        newRenderPassResource.initRenderPipeline( new x3dom.WebGPU.GPURenderPipelineDescriptor( layout, vertex, fragment, primitive, depthStencil, multisample/*, label*/ ) );
+        newRenderPassResource.initBindGroups( [ bindingListArray[ 0 ] ] );
+        newRenderPassResource.initVertexBuffers();
+        newRenderPassResource.initIndexBuffer();
+        return newRenderPassResource;
     };
-    //shader2 = shader.new();
-    /*var shader2 = new x3dom.WebGPU.RenderPassResource( shader, {
-        bindGroupDescriptors : [ , shader.bindGroupDescriptors[ 1 ] ],
-        uniformStorage       : Object.defineProperties( {}, Object.getOwnPropertyDescriptors( shader.uniformStorage ) ),
-        bindGroups           : Object.defineProperty( [],1, Object.getOwnPropertyDescriptor( shader.bindGroups,1 ) ),
-        vertexBuffers        : [],
-        vertices             : {}
-    } );*/
-    //shader2.initBindGroups( undefined, resourcesArray );
-    //shader2.initBindGroups( [ bindingListArray[ 0 ] ] );
-    //shader2.initVertexBuffers();
-    //shader2.initIndexBuffer();
-    //shader2.uniformStorage.lights = new shader.assets.Lights( 2 );
-    //var lights = new DataView(new ArrayBuffer(stride*2) );
-
-    //shader2.vertices.position = new Float32Array( 1000 );
-    //shader2.vertices.normal = new Float32Array( 1000 );
-    //shader2.indexBuffer = new Uint32Array( [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ] );
-
-    /*{
-        const size = 48;
-        const usage = GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST;
-        const mappedAtCreation = false;
-        const label = `indexBuffer`;
-        const bufferDescriptor = new x3dom.WebGPU.GPUBufferDescriptor( size, usage, mappedAtCreation, label );
-        var indexBuffer = context.device.createBuffer( bufferDescriptor );
-
-        context.device.queue.writeBuffer( indexBuffer, 0, new Uint32Array( [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ] ), 0, 9 );
-    }*/
-    /*
-    {
-        const colorFormats = [ context.ctx3d.getCurrentTexture().format];
-        const depthStencilFormat = "depth32float-stencil8";
-        const sampleCount = 1;
-        var renderBundleEncoderDescriptor = new x3dom.WebGPU.GPURenderBundleEncoderDescriptor( colorFormats, depthStencilFormat, sampleCount);
-        var renderBundleEncoder = context.device.createRenderBundleEncoder( renderBundleEncoderDescriptor );
-        renderBundleEncoder.setPipeline( shader2.renderPipeline );
-        for ( var bindGroup of shader2.bindGroups )
-        {
-            renderBundleEncoder.setBindGroup( shader2.bindGroups.indexOf( bindGroup ), bindGroup );
-        }
-        for ( var vertexBuffer of shader2.vertexBuffers )
-        {
-            renderBundleEncoder.setVertexBuffer( shader2.vertexBuffers.indexOf( vertexBuffer ), vertexBuffer );
-        }
-        renderBundleEncoder.setIndexBuffer( shader2.indexBuffer, "uint32" );
-        renderBundleEncoder.drawIndexed( 9 );
-
-        //renderBundleEncoder .draw(cubeVertexCount, 1, 0, 0);
-        var renderBundle = renderBundleEncoder.finish();
-    }
-
-    {
-        const size = new x3dom.WebGPU.GPUExtent3DDict( context.canvas.width, context.canvas.height );
-        let mipLevelCount;
-        let sampleCount;
-        let dimension;
-        const format = "depth32float-stencil8";
-        const usage = GPUTextureUsage.RENDER_ATTACHMENT;
-        let viewFormats;
-        let label;
-
-        var textureDescriptor = new x3dom.WebGPU.GPUTextureDescriptor( size, mipLevelCount, sampleCount, dimension, format, usage, viewFormats, label );
-        var depthTexture = context.device.createTexture( textureDescriptor );
-    }
-
-    {
-        const view = context.ctx3d.getCurrentTexture().createView();
-        let depthSlice;
-        let resolveTarget;
-        const clearValue = new x3dom.WebGPU.GPUColorDict( 0.5, 0.5, 0.5, 1.0 );
-        const loadOp = "clear";
-        const storeOp = "store";
-
-        var colorAttachments = [ new x3dom.WebGPU.GPURenderPassColorAttachment( view, depthSlice, resolveTarget, clearValue, loadOp, storeOp ) ];
-    }
-
-    {
-        const view = depthTexture.createView();
-        const depthClearValue = 1.0;
-        const depthLoadOp = "clear";
-        const depthStoreOp = "store";
-        let depthReadOnly;
-        const stencilClearValue = 0;
-        const stencilLoadOp = "clear";
-        const stencilStoreOp = "store";
-        let stencilReadOnly;
-
-        var depthStencilAttachment = new x3dom.WebGPU.GPURenderPassDepthStencilAttachment( view, depthClearValue, depthLoadOp, depthStoreOp, depthReadOnly, stencilClearValue, stencilLoadOp, stencilStoreOp, stencilReadOnly );
-
-        let occlusionQuerySet;
-        let timestampWrites;
-        let maxDrawCount;
-        let label;
-
-        var renderPassDescriptor = new x3dom.WebGPU.GPURenderPassDescriptor( colorAttachments, depthStencilAttachment, occlusionQuerySet, timestampWrites, maxDrawCount, label );
-    }
-
-    var commandEncoder = context.device.createCommandEncoder();
-
-    var renderPassEncoder = commandEncoder.beginRenderPass( renderPassDescriptor );
-    renderPassEncoder.executeBundles( [ renderBundle ] );
-    renderPassEncoder.end();
-    context.device.queue.submit( [ commandEncoder.finish() ] );
-*/
-    return shader;
+    return renderPassResource;
 };
 /*
  * X3DOM JavaScript Library
