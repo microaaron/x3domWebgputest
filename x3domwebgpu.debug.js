@@ -1,8 +1,8 @@
 /** 
  * X3DOM 1.8.4-dev
- * Build : 7584
- * Revision: bfa8cf1961d1fc91e7ebeaaa376622843c22ced4
- * Date: Thu May 2 23:44:39 2024 +0800
+ * Build : 7585
+ * Revision: efd6073a5f2ef0f0a47920b5ec14579f2ef82292
+ * Date: Sat May 4 11:45:34 2024 +0800
  */
 /**
  * X3DOM JavaScript Library
@@ -29,9 +29,9 @@ var x3dom = {
 
 x3dom.about = {
     version  : "1.8.4-dev",
-    build    : "7584",
-    revision : "bfa8cf1961d1fc91e7ebeaaa376622843c22ced4",
-    date     : "Thu May 2 23:44:39 2024 +0800"
+    build    : "7585",
+    revision : "efd6073a5f2ef0f0a47920b5ec14579f2ef82292",
+    date     : "Sat May 4 11:45:34 2024 +0800"
 };
 
 /**
@@ -59801,8 +59801,8 @@ x3dom.registerNodeType(
                 else if ( this._zNear != znear || this._zFar != zfar )
                 {
                     var div = znear - zfar;
-                    this._projMatrix._22 = ( znear + zfar ) / div;
-                    this._projMatrix._23 = 2 * znear * zfar / div;
+                    this._projMatrix._22 = zfar / div;
+                    this._projMatrix._23 = znear * zfar / div;
                 }
                 else if ( this._lastAspect != aspect )
                 {
